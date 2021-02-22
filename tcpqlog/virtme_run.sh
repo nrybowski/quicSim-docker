@@ -3,6 +3,12 @@
 CUR_DIR="${PWD}"
 cd "${SRC}"
 # install new kernel modules for BCC
+kconfig=(-e BPF_SYSCALL -d CGROUP_BPF -d BPF_PRELOAD -d XDP_SOCKETS -d BPF_KPROBE_OVERRIDE \
+        -d KPROBE_EVENT_GEN_TEST )
+virtme-configkernel --defconfig
+echo | ./scripts/config "${kconfig[@]}"
+make -j"$(nproc)"
+#make -j"$(nproc)" > /dev/null 2>&1 
 make -j"$(nproc)" headers_install > /dev/null 2>&1 
 make -j"$(nproc)" modules_install > /dev/null 2>&1 
 cd "${CUR_DIR}"
