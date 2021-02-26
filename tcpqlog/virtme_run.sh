@@ -4,10 +4,10 @@ CUR_DIR="${PWD}"
 cd "${SRC}"
 # install new kernel modules for BCC
 kconfig=(-e BPF_SYSCALL -d CGROUP_BPF -d BPF_PRELOAD -d XDP_SOCKETS -d BPF_KPROBE_OVERRIDE \
-        -d KPROBE_EVENT_GEN_TEST )
-virtme-configkernel --defconfig
-echo | ./scripts/config "${kconfig[@]}"
-make -j"$(nproc)"
+        -d KPROBE_EVENT_GEN_TEST -e CONFIG_KALLSYMS_ALL)
+#virtme-configkernel --defconfig
+#echo | ./scripts/config "${kconfig[@]}"
+#make -j"$(nproc)"
 #make -j"$(nproc)" > /dev/null 2>&1 
 make -j"$(nproc)" headers_install > /dev/null 2>&1 
 make -j"$(nproc)" modules_install > /dev/null 2>&1 
@@ -31,6 +31,7 @@ then
 
 cat <<EOF > script.py
 import socket
+import signal
 
 sk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sk.bind(('${VM_IP}', 5000))
@@ -38,6 +39,12 @@ sk.listen()
 
 while True:
     conn, addr = sk.accept()
+
+def sigint_handler(_sig, _frame):
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, sigint_handler)
+
 EOF
 
 elif [[ "${CONTAINER_NAME}" == "client" ]]
@@ -73,6 +80,7 @@ send -- "ip r add default via ${GATEWAY} dev eth0\r"
 
 # launch scripts
 send -- "cd /wd\r"
+send -- "set -e\r"
 #send -- "./script.sh &\r"
 send -- "python3 tcp.py &\r"
 
@@ -81,8 +89,8 @@ expect "Probe added"
 
 send -- "python3 script.py &\r"
 
-send -- "sleep 60\r"
-#send -- "cat /sys/kernel/debug/tracing/trace_pipe\r"
+send -- "sleep 10\r"
+send -- "pkill -2 python3\r"
 send -- "cat /sys/kernel/debug/tracing/trace\r"
 
 # kill KVM

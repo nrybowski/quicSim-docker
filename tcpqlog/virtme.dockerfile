@@ -13,6 +13,8 @@ RUN git clone https://github.com/ezequielgarcia/virtme.git && cd virtme && \
 RUN ln -s /usr/lib/klibc/bin/poweroff /bin
 RUN mkdir -pv /lib/modules/5.11.0-rc7+/
 
+RUN apt-get install tcpdump
+
 ARG SRC
 COPY virtme_run.sh tcp.py ./
 RUN chmod +x virtme_run.sh
