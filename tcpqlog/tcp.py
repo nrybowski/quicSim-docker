@@ -6,6 +6,8 @@ import os
 import json
 import ctypes
 import time as ti
+import hashlib
+import time
 
 from socket import inet_ntoa, htonl, ntohs
 
@@ -37,9 +39,12 @@ struct data_t {
     u32 seq, ack_seq, end_seq;
     
     u8 flags;
+
+    u64 sk;
 };
 BPF_PERF_OUTPUT(events);
 BPF_PERF_OUTPUT(rcv_events);
+
 
 /*  tcp_transmit_skb is the common function used to send skbs in 
     tcp_connect aka 'SYN sent' (https://elixir.bootlin.com/linux/v5.11/source/net/ipv4/tcp_output.c#L3856)
@@ -53,6 +58,7 @@ int kprobe____tcp_transmit_skb(struct pt_regs *ctx, struct sock *sk, struct sk_b
     struct tcphdr* th; 
 
     struct tcp_skb_cb* cb = TCP_SKB_CB(&skb_in);
+	const struct inet_request_sock *rsk = inet_rsk(inet_reqsk(sk));
 
     data.timestamp = timestamp;
     data.daddr = sk->sk_daddr;
@@ -64,13 +70,21 @@ int kprobe____tcp_transmit_skb(struct pt_regs *ctx, struct sock *sk, struct sk_b
     bpf_probe_read_kernel((void*) &skb_in, sizeof(struct sk_buff), skb);
     th = tcp_hdr(&skb_in);
     data.flags = cb->tcp_flags;
+    // send reset
+    // TODO : adapt byteorder if needed https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/tcp.h#L41
+    if (data.flags & 0b00000100) {
+        bpf_probe_read_kernel(&data.sport, sizeof(data.dport), &rsk->ir_num);
+        data.sport = ntohs(data.sport);
+    }
     data.seq = cb->seq;
     data.end_seq = cb->end_seq;
     data.ack_seq = rcv_nxt;
+    data.sk = (u64) sk;
 
     events.perf_submit(ctx, &data, sizeof(struct data_t));
 
     bpf_trace_printk("TRANSMIT %u %u %u", data.saddr, data.daddr, data.flags);
+    bpf_trace_printk("sk %p", sk);
     bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
     bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
 
@@ -133,7 +147,7 @@ struct sk_buff *kretprobe__tcp_make_synack(struct pt_regs *ctx) {
     return skb;
 }
 
-/*void kprobe__tcp_v4_send_reset(struct pt_regs *ctx, const struct sock *sk, struct sk_buff *skb) {
+void kprobe__tcp_v4_send_reset(struct pt_regs *ctx, const struct sock *sk, struct sk_buff *skb) {
     struct sk_buff skb_in;
     bpf_probe_read_kernel((void*) &skb_in, sizeof(struct sk_buff), skb);
 
@@ -150,10 +164,12 @@ struct sk_buff *kretprobe__tcp_make_synack(struct pt_regs *ctx) {
 
     data.family = sk->sk_family;
     data.timestamp = bpf_ktime_get_ns();
-    events.perf_submit(ctx, &data, sizeof(data));
+    //events.perf_submit(ctx, &data, sizeof(data));
 
-    bpf_trace_printk("reset %u\\n", data.saddr);
-}*/
+    bpf_trace_printk("RST sent %u %u %u", data.saddr, data.daddr, data.flags);
+    bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
+    bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
+}
 
 // syn received
 int kprobe__tcp_conn_request(struct pt_regs *ctx, struct request_sock_ops *rsk_ops, const struct tcp_request_sock_ops *af_ops, struct sock *sk, struct sk_buff *skb)
@@ -243,13 +259,30 @@ int kprobe__tcp_ack(struct pt_regs *ctx, struct sock *sk, const struct sk_buff *
 
 // reset received
 void kprobe__tcp_reset(struct pt_regs *ctx, struct sock *sk, struct sk_buff *skb) {
+    u64 timestamp = bpf_ktime_get_ns();
+
     struct data_t data = {};
+    struct sk_buff skb_in;
+    bpf_probe_read((void*) &skb_in, sizeof(struct sk_buff), skb);
+    struct tcphdr* th = tcp_hdr(&skb_in);
+    struct tcp_skb_cb* cb = TCP_SKB_CB(&skb_in);
+
+    data.timestamp = timestamp;
     data.event_type = 4;
     data.daddr = sk->sk_daddr;
     data.saddr = sk->sk_rcv_saddr;
     data.sport = sk->sk_num;
     data.dport = sk->sk_dport;
     data.family = sk->sk_family;
+    bpf_probe_read((void*) &data.flags, sizeof(u8), &((u_int8_t *)th)[13]);
+
+
+    bpf_probe_read((void*) &data.end_seq, sizeof(u32), &cb->end_seq);
+
+    bpf_probe_read_kernel(&data.ack_seq, sizeof(u32), &th->ack_seq);
+    bpf_probe_read_kernel(&data.seq, sizeof(u32), &th->seq);
+    data.ack_seq = ntohl(data.ack_seq);
+    data.seq = ntohl(data.seq);
 
     rcv_events.perf_submit(ctx, &data, sizeof(data));
     bpf_trace_printk("reset received %u : %u\\n", data.saddr, data.daddr);
@@ -310,13 +343,15 @@ traces = {}
 events = []
 trace = {'events': events}
 
+output_file = open('/mnt/test.qlog', 'w')
+
 def from_long_to_ip4(val):
     return inet_ntoa(bytes(bytearray.fromhex(hex(htonl(val))[2:])))
 
 b = BPF(text=bpf_code)
 c = {}
 
-def format_seq_no(events):
+def format_seq_no(group_id, events):
     # sort events by timestamp
     events.sort()
     #initial_timestamp = events[0][0]
@@ -331,6 +366,7 @@ def format_seq_no(events):
         remote = events[1][3]['header']['seq']
 
     for event in events:
+        event.append(group_id)
         print(event)
         if event[1] == 'transport':
             header = event[3]['header']
@@ -339,7 +375,6 @@ def format_seq_no(events):
                     del header['end_seq']
                 else:
                     header['ack'] -= (remote if event[2] == 'packet_sent' else local)
-                #if event[2] == 'packet_sent':
                     try:
                         seq = header['seq'] - (local if event[2] == 'packet_sent' else remote)
                         header['seq'] = [seq]
@@ -348,25 +383,33 @@ def format_seq_no(events):
                                 end_seq = header['end_seq'] - (local if event[2] == 'packet_sent' else remote)
                                 header['seq'].append(end_seq)
                             del header['end_seq']
+                            if len(header['seq']) == 1 or header['seq'][0] == header['seq'][1]:
+                                header['seq'] = header['seq'][0]
                         except KeyError:
                             pass
                     except KeyError:
                         pass
+        
         #event[0] -= initial_timestamp
         #event[0] /= pow(10, 6)
         print('%s\n\n' % event)
     print(events)
+    #json.dump(events, output_file)
+    return events
+
+meta = {}
 
 def sigint_handler(_sig, _frame):
     print('Kill probe')
-    #print(c)
-    #events.sort()
-    #for event in events:
-    #    print(event)
-    #print('\n\n')
     print(traces)
+    print('\nmeta : %s\n' % meta)
+    qlog_data = {'events': []}
     for conn in traces.values():
-        format_seq_no(conn)
+        h = hashlib.md5(json.dumps(conn).encode('utf8')).hexdigest()
+        qlog_data['events'].append(format_seq_no(h, conn))
+    print(qlog_data)
+    json.dump(qlog_data, output_file)
+    output_file.close()
     sys.exit(0)
 
 def process_event(cpu, data, size, event_type):
@@ -392,10 +435,25 @@ def process_event(cpu, data, size, event_type):
             'ip_version': '4' if event.family == 2 else '6'
     }
 
+    if event.sk != 0:
+        try:
+            if connection not in meta[event.sk]:
+                meta[event.sk].append(connection)
+        except KeyError:
+            meta[event.sk] = [connection]
+
+    header = {'flags': tcp.flags2str(event.flags).split('|')}
+
+    # special case on send RST-ACK, the src port is not defined but is retrieved 
+    # through the socket which is used for the connection
+    if connection['src_port'] == 0 and event.sk in meta:
+        # TODO : check if multiple co collected on the sk
+        connection['src_port'] = meta[event.sk][0]['src_port']
+        print(header['flags'])
+        print(connection)
+
     connection = dict(sorted(connection.items()))
     fco = frozenset(connection.items())
-    
-    header = {'flags': tcp.flags2str(event.flags).split('|')}
 
     if 'SYN' in header['flags']:
         header['seq'] = event.seq
@@ -437,7 +495,7 @@ def process_event(cpu, data, size, event_type):
         traces[fco].append(log)
     except KeyError:
         traces[fco] = [log]
-
+ 
 def process_send_event(cpu, data, size):
     process_event(cpu, data, size, 'snt')
     

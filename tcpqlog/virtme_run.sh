@@ -44,7 +44,6 @@ def sigint_handler(_sig, _frame):
     sys.exit(0)
 
 signal.signal(signal.SIGINT, sigint_handler)
-
 EOF
 
 elif [[ "${CONTAINER_NAME}" == "client" ]]
@@ -53,11 +52,11 @@ then
 cat <<EOF > script.py
 import socket
 
-sk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sk.connect(('${SERVER_IP}', 5000))
-sk.send(b'test')
-sk.close()
-
+for i in range(1,3):
+    sk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sk.connect(('${SERVER_IP}', 5000))
+    sk.send(b'test'*i)
+    sk.close()
 EOF
 
 fi
@@ -68,7 +67,7 @@ cat <<EOF > run.sh
 set timeout 1500
 
 # start KVM
-spawn virtme-run --kdir /mnt  --rodir /mnt  --rodir /lib/modules --qemu-opts -m 700M -enable-kvm -device e1000,netdev=net0,mac=52:54:01:12:34:${END} -netdev tap,id=net0,br=br0
+spawn virtme-run --kdir ${SRC}  --rodir ${SRC}  --rwdir /mnt --rodir /lib/modules --qemu-opts -m 700M -enable-kvm -device e1000,netdev=net0,mac=52:54:01:12:34:${END} -netdev tap,id=net0,br=br0
 
 # wait for KVM entire boot
 expect "virtme-init: console is ttyS0\r"
