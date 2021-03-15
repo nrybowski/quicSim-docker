@@ -39,6 +39,7 @@ struct data_t {
     u32 seq, ack_seq, end_seq;
     
     u8 flags;
+    u16 win;
 
     u64 sk;
 };
@@ -58,7 +59,6 @@ int kprobe____tcp_transmit_skb(struct pt_regs *ctx, struct sock *sk, struct sk_b
     struct tcphdr* th; 
 
     struct tcp_skb_cb* cb = TCP_SKB_CB(&skb_in);
-	const struct inet_request_sock *rsk = inet_rsk(inet_reqsk(sk));
 
     data.timestamp = timestamp;
     data.daddr = sk->sk_daddr;
@@ -70,20 +70,18 @@ int kprobe____tcp_transmit_skb(struct pt_regs *ctx, struct sock *sk, struct sk_b
     bpf_probe_read_kernel((void*) &skb_in, sizeof(struct sk_buff), skb);
     th = tcp_hdr(&skb_in);
     data.flags = cb->tcp_flags;
-    // send reset
-    // TODO : adapt byteorder if needed https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/tcp.h#L41
-    if (data.flags & 0b00000100) {
-        bpf_probe_read_kernel(&data.sport, sizeof(data.dport), &rsk->ir_num);
-        data.sport = ntohs(data.sport);
-    }
+
     data.seq = cb->seq;
     data.end_seq = cb->end_seq;
     data.ack_seq = rcv_nxt;
     data.sk = (u64) sk;
+    bpf_probe_read_kernel(&data.win, sizeof(u16), &th->window);
+    data.win = ntohs(data.win);
 
     events.perf_submit(ctx, &data, sizeof(struct data_t));
 
     bpf_trace_printk("TRANSMIT %u %u %u", data.saddr, data.daddr, data.flags);
+    bpf_trace_printk("win %u", data.win);
     bpf_trace_printk("sk %p", sk);
     bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
     bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
@@ -121,6 +119,8 @@ struct sk_buff *kretprobe__tcp_make_synack(struct pt_regs *ctx) {
         data.family = sk->sk_family;
         data.sport = sk->sk_num;
         data.dport = sk->sk_dport;
+        bpf_probe_read_kernel(&data.win, sizeof(u16), &th->window);
+        data.win = ntohs(data.win);
         //bpf_probe_read_kernel(&data.dport, sizeof(data.dport), &sk->sk_num);
         //bpf_probe_read_kernel(&data.sport, sizeof(data.sport), &sk->sk_dport);
         //data.sport = ntohs(data.sport);
@@ -140,6 +140,7 @@ struct sk_buff *kretprobe__tcp_make_synack(struct pt_regs *ctx) {
 
         // Debug
         bpf_trace_printk("SYN-ACK sent %u %u %u", data.saddr, data.daddr, data.flags);
+        bpf_trace_printk("win %u", data.win);
         bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
         bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
     }
@@ -197,12 +198,16 @@ int kprobe__tcp_conn_request(struct pt_regs *ctx, struct request_sock_ops *rsk_o
     data.ack_seq = ntohl(data.ack_seq);
     data.seq = ntohl(data.seq);
 
+    bpf_probe_read_kernel(&data.win, sizeof(u16), &th->window);
+    data.win = ntohs(data.win);
+
     data.family = sk->sk_family;
     data.timestamp = timestamp;
 
     rcv_events.perf_submit(ctx, &data, sizeof(data));
 
     bpf_trace_printk("SYN received, %u %u %u", data.saddr, data.daddr, data.flags);
+    bpf_trace_printk("win %u", data.win);
     bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
     bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
 
@@ -236,6 +241,9 @@ int kprobe__tcp_ack(struct pt_regs *ctx, struct sock *sk, const struct sk_buff *
     data.dport = sk->sk_dport;
     data.family = sk->sk_family;
 
+    bpf_probe_read_kernel(&data.win, sizeof(u16), &th->window);
+    data.win = ntohs(data.win);
+
     u32 cb_seq, cb_end_seq;
     bpf_probe_read((void*) &cb_seq, sizeof(u32), &cb->seq);
     bpf_probe_read((void*) &cb_end_seq, sizeof(u32), &cb->end_seq);
@@ -246,6 +254,7 @@ int kprobe__tcp_ack(struct pt_regs *ctx, struct sock *sk, const struct sk_buff *
         rcv_events.perf_submit(ctx, &data, sizeof(struct data_t));
 
     bpf_trace_printk("ACK received %u %u %u", data.saddr, data.daddr, data.flags);
+    bpf_trace_printk("win %u", data.win);
     bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
     bpf_trace_printk("cb_seq %u, cb_end_seq %u", cb_seq, cb_end_seq);
     bpf_trace_printk("seq %u, end_seq %u, ack_seq %u", data.seq, data.end_seq, data.ack_seq);
@@ -276,6 +285,8 @@ void kprobe__tcp_reset(struct pt_regs *ctx, struct sock *sk, struct sk_buff *skb
     data.family = sk->sk_family;
     bpf_probe_read((void*) &data.flags, sizeof(u8), &((u_int8_t *)th)[13]);
 
+    bpf_probe_read_kernel(&data.win, sizeof(u16), &th->window);
+    data.win = ntohs(data.win);
 
     bpf_probe_read((void*) &data.end_seq, sizeof(u32), &cb->end_seq);
 
@@ -285,7 +296,10 @@ void kprobe__tcp_reset(struct pt_regs *ctx, struct sock *sk, struct sk_buff *skb
     data.seq = ntohl(data.seq);
 
     rcv_events.perf_submit(ctx, &data, sizeof(data));
-    bpf_trace_printk("reset received %u : %u\\n", data.saddr, data.daddr);
+    bpf_trace_printk("RST received %u : %u\\n", data.saddr, data.daddr);
+    bpf_trace_printk("win %u", data.win);
+    bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
+    bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
 }
 
 // fin received
@@ -486,6 +500,8 @@ def process_event(cpu, data, size, event_type):
             header['seq'] = event.seq
             header['end_seq'] = event.end_seq
         header['ack'] = event.ack_seq
+
+    header['win'] = event.win
 
     transport_type = 'packet_received' if event_type == 'rcv' else 'packet_sent'
     log = [timestamp,  'transport', transport_type, {'header': header}]

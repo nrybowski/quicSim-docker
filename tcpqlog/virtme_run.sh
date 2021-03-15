@@ -11,6 +11,7 @@ kconfig=(-e BPF_SYSCALL -d CGROUP_BPF -d BPF_PRELOAD -d XDP_SOCKETS -d BPF_KPROB
 #make -j"$(nproc)" > /dev/null 2>&1 
 make -j"$(nproc)" headers_install > /dev/null 2>&1 
 make -j"$(nproc)" modules_install > /dev/null 2>&1 
+make -j"$(nproc)" -C tools/bpf/bpftool install
 cd "${CUR_DIR}"
 
 # get container IP to configure container connectivity
