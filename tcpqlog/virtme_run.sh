@@ -4,7 +4,7 @@ CUR_DIR="${PWD}"
 cd "${SRC}"
 # install new kernel modules for BCC
 kconfig=(-e BPF_SYSCALL -d CGROUP_BPF -d BPF_PRELOAD -d XDP_SOCKETS -d BPF_KPROBE_OVERRIDE \
-        -d KPROBE_EVENT_GEN_TEST -e CONFIG_KALLSYMS_ALL)
+        -d KPROBE_EVENT_GEN_TEST -e CONFIG_KALLSYMS_ALL -e NET_SCH_NETEM)
 #virtme-configkernel --defconfig
 #echo | ./scripts/config "${kconfig[@]}"
 #make -j"$(nproc)"
@@ -35,11 +35,19 @@ import socket
 import signal
 
 sk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sk.bind(('${VM_IP}', 5000))
+#sk.bind(('${VM_IP}', 5000))
+sk.bind(('', 5000))
 sk.listen()
 
 while True:
     conn, addr = sk.accept()
+    with conn:
+        print('Connected by', addr)
+        while True:
+            data = conn.recv(4096)
+            if not data: break
+        print('End1')
+    print('End2')
 
 def sigint_handler(_sig, _frame):
     sys.exit(0)
@@ -52,15 +60,24 @@ then
 
 cat <<EOF > script.py
 import socket
+import time
 
-for i in range(1,3):
+for i in range(1,2):
     sk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sk.connect(('${SERVER_IP}', 5000))
-    sk.send(b'test'*i)
+    sk.sendall(b'A'*pow(10, 6))
+    sk.shutdown(socket.SHUT_WR)
     sk.close()
+    time.sleep(20)
+    print('Client end')
 EOF
 
 fi
+MAC0="52:54:01:12:34"
+MAC1="${MAC0}:${END}"
+MAC2="${MAC0}:$((${END}+1))"
+MAC3="${MAC0}:$((${END}+2))"
+IP="/usr/sbin/ip"
 
 cat <<EOF > run.sh
 #! /usr/bin/expect -f
@@ -68,32 +85,65 @@ cat <<EOF > run.sh
 set timeout 1500
 
 # start KVM
-spawn virtme-run --kdir ${SRC}  --rodir ${SRC}  --rwdir /mnt --rodir /lib/modules --qemu-opts -m 700M -enable-kvm -device e1000,netdev=net0,mac=52:54:01:12:34:${END} -netdev tap,id=net0,br=br0
+spawn virtme-run --kdir ${SRC}  --rodir /mptcp-tools --rodir ${SRC}  --rwdir /mnt --rodir /lib/modules --qemu-opts -m 700M -enable-kvm -device e1000,netdev=net0,mac=${MAC1} -netdev tap,id=net0,br=br0 -device e1000,netdev=net1,mac=${MAC2} -netdev tap,id=net1,br=br0 -device e1000,netdev=net2,mac=${MAC3} -netdev tap,id=net2,br=br0
 
 # wait for KVM entire boot
 expect "virtme-init: console is ttyS0\r"
 
 # KVM side network setup
-send -- "ip a add ${VM_IP}/16 dev eth0\r"
-send -- "ip l set dev eth0 up\r"
-send -- "ip r add default via ${GATEWAY} dev eth0\r"
+send -- "${IP} l set dev eth0 up\r"
+send -- "${IP} l set dev eth1 up\r"
+send -- "${IP} l set dev eth2 up\r"
+
+send -- "${IP} a add ${VM_IP}/16 dev eth0\r"
+send -- "${IP} a add 172.17.1.$((${END} + 1))/16 dev eth1\r"
+send -- "${IP} a add 172.17.2.$((${END} + 2))/16 dev eth2\r"
+
+send -- "${IP} mptcp endpoint flush\r"
+send -- "${IP} mptcp limits set add_addr_accepted 8 subflows 8\r"
+
+if { "${CONTAINER_NAME}" == "client" } {
+    #send -- "tc qdisc add dev eth0 root netem delay 1500ms 0\r"
+    #send -- "${IP} mptcp endpoint add ${VM_IP} subflow\r"
+    send -- "${IP} mptcp endpoint add 172.17.1.$((${END} + 1)) subflow\r"
+    send -- "${IP} mptcp endpoint add 172.17.2.$((${END} + 2)) subflow\r"
+}
+
+send -- "${IP} r add default via ${GATEWAY} dev eth0\r"
+
+send -- "sleep 2\r"
 
 # launch scripts
 send -- "cd /wd\r"
 send -- "set -e\r"
-#send -- "./script.sh &\r"
-send -- "python3 tcp.py &\r"
 
 # wait for BPF programs injection
+send -- "python3 tcp.py &\r"
 expect "Probe added"
 
-send -- "python3 script.py &\r"
+if { "${CONTAINER_NAME}" == "client" } {
+    #send -- "/mptcp-tools/use_mptcp/use_mptcp.sh python3 script.py &\r"
+    send -- "/mptcp-tools/use_mptcp/use_mptcp.sh curl ${SERVER_IP}:8000 > /dev/null 2>&1 \r"
+} elseif { "${CONTAINER_NAME}" == "server" } {
+    send -- "/mptcp-tools/use_mptcp/use_mptcp.sh python3 -m http.server & \r"
+    #send -- "python3 -m http.server & \r"
+}
+#send -- "python3 script.py &\r"
 
-send -- "sleep 10\r"
-send -- "pkill -2 python3\r"
-send -- "cat /sys/kernel/debug/tracing/trace\r"
+#send -- "sleep 10\r"
+#send -- "pkill -2 python3\r"
+#send -- "cat /sys/kernel/debug/tracing/trace\r"
 
 # kill KVM
+if { "${CONTAINER_NAME}" == "client" } {
+    #expect "Client end"
+    #send -- "cat /sys/kernel/debug/tracing/trace\r"
+} elseif { "${CONTAINER_NAME}" == "server" } {
+    expect "172.17.0."
+}
+
+send -- "pkill -2 python3\r"
+expect "Dump end"
 send -- "/usr/lib/klibc/bin/poweroff\r"
 
 expect eof

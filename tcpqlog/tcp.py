@@ -424,6 +424,7 @@ def sigint_handler(_sig, _frame):
     print(qlog_data)
     json.dump(qlog_data, output_file)
     output_file.close()
+    print('Dump end')
     sys.exit(0)
 
 def process_event(cpu, data, size, event_type):
