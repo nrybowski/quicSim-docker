@@ -1,0 +1,40 @@
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+02:35:38.639982 IP 172.17.0.30.58268 > 172.17.0.10.8000: Flags [S], seq 2830999477, win 64240, options [mss 1460,sackOK,TS val 3612813714 ecr 0,nop,wscale 7,mptcp capable v1], length 0
+02:35:38.640215 IP 172.17.0.10.8000 > 172.17.0.30.58268: Flags [S.], seq 3136453998, ack 2830999478, win 65160, options [mss 1460,sackOK,TS val 2608426076 ecr 3612813714,nop,wscale 7,mptcp capable v1 {0x2767a6412b742ad2}], length 0
+02:35:38.640399 IP 172.17.0.30.58268 > 172.17.0.10.8000: Flags [.], ack 1, win 502, options [nop,nop,TS val 3612813716 ecr 2608426076,mptcp capable v1 {0x5dd53ba4fc6e19f5,0x2767a6412b742ad2}], length 0
+02:35:38.642331 IP 172.17.0.30.58268 > 172.17.0.10.8000: Flags [P.], seq 1:81, ack 1, win 502, options [nop,nop,TS val 3612813718 ecr 2608426076,mptcp capable v1 {0x5dd53ba4fc6e19f5,0x2767a6412b742ad2},nop,nop], length 80
+02:35:38.642562 IP 172.17.0.10.8000 > 172.17.0.30.58268: Flags [.], ack 81, win 509, options [nop,nop,TS val 2608426078 ecr 3612813718,mptcp dss ack 7925582221310606572], length 0
+02:35:38.642924 IP 172.17.1.31.50763 > 172.17.0.10.8000: Flags [S], seq 1956559188, win 64240, options [mss 1460,sackOK,TS val 1245786477 ecr 0,nop,wscale 7,mptcp join id 1 token 0x980fbe48 nonce 0x9f6e3e28], length 0
+02:35:38.644308 IP 172.17.0.10.8000 > 172.17.1.31.50763: Flags [S.], seq 870922547, ack 1956559189, win 65160, options [mss 1460,sackOK,TS val 1690396834 ecr 1245786477,nop,wscale 7,mptcp join id 0 hmac 0x3024e5810a775100 nonce 0x1a0a098a], length 0
+02:35:38.644579 IP 172.17.1.31.50763 > 172.17.0.10.8000: Flags [.], ack 1, win 502, options [nop,nop,TS val 1245786479 ecr 1690396834,mptcp join hmac 0xb7f5e6e3dd337a1bcfc6cdea87a289649af5d518], length 0
+02:35:38.644816 IP 172.17.0.10.8000 > 172.17.1.31.50763: Flags [.], ack 1, win 510, options [nop,nop,TS val 1690396835 ecr 1245786479,mptcp dss ack 7925582221310606572], length 0
+02:35:38.645093 IP 172.17.2.32.37245 > 172.17.0.10.8000: Flags [S], seq 1932828123, win 64240, options [mss 1460,sackOK,TS val 2077036738 ecr 0,nop,wscale 7,mptcp join id 2 token 0x980fbe48 nonce 0xff0d0ae6], length 0
+02:35:38.645587 IP 172.17.0.10.8000 > 172.17.2.32.37245: Flags [S.], seq 2791183020, ack 1932828124, win 65160, options [mss 1460,sackOK,TS val 2560110135 ecr 2077036738,nop,wscale 7,mptcp join id 0 hmac 0x3e636479a6442784 nonce 0xded2fbca], length 0
+02:35:38.645845 IP 172.17.2.32.37245 > 172.17.0.10.8000: Flags [.], ack 1, win 502, options [nop,nop,TS val 2077036738 ecr 2560110135,mptcp join hmac 0x60afdf73cadfcf86dba1939b34149676cd7df7c0], length 0
+02:35:38.646061 IP 172.17.0.10.8000 > 172.17.2.32.37245: Flags [.], ack 1, win 510, options [nop,nop,TS val 2560110136 ecr 2077036738,mptcp dss ack 7925582221310606572], length 0
+02:35:38.655391 IP 172.17.0.10.8000 > 172.17.0.30.58268: Flags [P.], seq 1:155, ack 81, win 509, options [nop,nop,TS val 2608426091 ecr 3612813718,mptcp dss ack 7925582221310606572 seq 18245418448566792210 subseq 1 len 154,nop,nop], length 154
+02:35:38.655729 IP 172.17.0.30.58268 > 172.17.0.10.8000: Flags [.], ack 155, win 501, options [nop,nop,TS val 3612813731 ecr 2608426091,mptcp dss ack 18245418448566792364], length 0
+02:35:38.656072 IP 172.17.0.10.8000 > 172.17.0.30.58268: Flags [P.], seq 155:659, ack 81, win 509, options [nop,nop,TS val 2608426092 ecr 3612813731,mptcp dss ack 7925582221310606572 seq 18245418448566792364 subseq 155 len 504,nop,nop], length 504
+02:35:38.656221 IP 172.17.0.30.58268 > 172.17.0.10.8000: Flags [.], ack 659, win 501, options [nop,nop,TS val 3612813732 ecr 2608426092,mptcp dss ack 18245418448566792868], length 0
+02:35:38.656562 IP 172.17.0.10.8000 > 172.17.0.30.58268: Flags [.], ack 81, win 509, options [nop,nop,TS val 2608426092 ecr 3612813732,mptcp dss fin ack 7925582221310606572 seq 18245418448566792868 subseq 0 len 1,nop,nop], length 0
+02:35:38.656713 IP 172.17.0.30.58268 > 172.17.0.10.8000: Flags [.], ack 659, win 501, options [nop,nop,TS val 3612813732 ecr 2608426092,mptcp dss fin ack 18245418448566792868 seq 7925582221310606572 ubseq 0 len 1,nop,nop], length 0
+02:35:38.656786 IP 172.17.0.10.8000 > 172.17.1.31.50763: Flags [.], ack 1, win 510, options [nop,nop,TS val 1690396835 ecr 1245786479,mptcp dss fin ack 7925582221310606572 seq 18245418448566792868 subseq 0 len 1,nop,nop], length 0
+02:35:38.656899 IP 172.17.1.31.50763 > 172.17.0.10.8000: Flags [.], ack 1, win 502, options [nop,nop,TS val 1245786480 ecr 1690396835,mptcp dss fin ack 18245418448566792868 seq 7925582221310606572 subseq 0 len 1,nop,nop], length 0
+02:35:38.657012 IP 172.17.2.32.37245 > 172.17.0.10.8000: Flags [.], ack 1, win 502, options [nop,nop,TS val 2077036739 ecr 2560110136,mptcp dss fin ack 18245418448566792868 seq 7925582221310606572 subseq 0 len 1,nop,nop], length 0
+02:35:38.657108 IP 172.17.0.30.58268 > 172.17.0.10.8000: Flags [.], ack 659, win 501, options [nop,nop,TS val 3612813732 ecr 2608426092,mptcp dss fin ack 18245418448566792869 seq 7925582221310606572 subseq 0 len 1,nop,nop], length 0
+02:35:38.657154 IP 172.17.1.31.50763 > 172.17.0.10.8000: Flags [.], ack 1, win 502, options [nop,nop,TS val 1245786492 ecr 1690396835,mptcp dss fin ack 18245418448566792869 seq 7925582221310606572 subseq 0 len 1,nop,nop], length 0
+02:35:38.657197 IP 172.17.2.32.37245 > 172.17.0.10.8000: Flags [.], ack 1, win 502, options [nop,nop,TS val 2077036739 ecr 2560110136,mptcp dss fin ack 18245418448566792869 seq 7925582221310606572 subseq 0 len 1,nop,nop], length 0
+02:35:38.657676 IP 172.17.0.10.8000 > 172.17.2.32.37245: Flags [.], ack 1, win 510, options [nop,nop,TS val 2560110147 ecr 2077036739,mptcp dss fin ack 7925582221310606572 seq 18245418448566792868 subseq 0 len 1,nop,nop], length 0
+02:35:38.657915 IP 172.17.0.10.8000 > 172.17.0.30.58268: Flags [.], ack 81, win 509, options [nop,nop,TS val 2608426093 ecr 3612813732,mptcp dss ack 7925582221310606573], length 0
+02:35:38.658043 IP 172.17.0.10.8000 > 172.17.1.31.50763: Flags [.], ack 1, win 510, options [nop,nop,TS val 1690396848 ecr 1245786492,mptcp dss ack 7925582221310606573], length 0
+02:35:38.658086 IP 172.17.0.30.58268 > 172.17.0.10.8000: Flags [F.], seq 81, ack 659, win 501, options [nop,nop,TS val 3612813734 ecr 2608426093,mptcp dss ack 18245418448566792869], length 0
+02:35:38.658177 IP 172.17.0.10.8000 > 172.17.2.32.37245: Flags [.], ack 1, win 510, options [nop,nop,TS val 2560110147 ecr 2077036739,mptcp dss ack 7925582221310606573], length 0
+02:35:38.658358 IP 172.17.1.31.50763 > 172.17.0.10.8000: Flags [F.], seq 1, ack 1, win 502, options [nop,nop,TS val 1245786493 ecr 1690396848,mptcp dss ack 18245418448566792869], length 0
+02:35:38.658455 IP 172.17.2.32.37245 > 172.17.0.10.8000: Flags [F.], seq 1, ack 1, win 502, options [nop,nop,TS val 2077036751 ecr 2560110147,mptcp dss ack 18245418448566792869], length 0
+02:35:38.658760 IP 172.17.0.10.8000 > 172.17.0.30.58268: Flags [F.], seq 659, ack 82, win 509, options [nop,nop,TS val 2608426094 ecr 3612813734,mptcp dss ack 7925582221310606573], length 0
+02:35:38.658915 IP 172.17.0.30.58268 > 172.17.0.10.8000: Flags [.], ack 660, win 501, options [nop,nop,TS val 3612813734 ecr 2608426094,mptcp dss ack 18245418448566792869], length 0
+02:35:38.659063 IP 172.17.0.10.8000 > 172.17.1.31.50763: Flags [F.], seq 1, ack 2, win 510, options [nop,nop,TS val 1690396849 ecr 1245786493,mptcp dss ack 7925582221310606573], length 0
+02:35:38.659202 IP 172.17.1.31.50763 > 172.17.0.10.8000: Flags [.], ack 2, win 502, options [nop,nop,TS val 1245786494 ecr 1690396849,mptcp dss ack 18245418448566792869], length 0
+02:35:38.659240 IP 172.17.0.10.8000 > 172.17.2.32.37245: Flags [.], ack 2, win 510, options [nop,nop,TS val 2560110149 ecr 2077036751,mptcp dss ack 7925582221310606573], length 0
+02:35:38.659531 IP 172.17.0.10.8000 > 172.17.2.32.37245: Flags [F.], seq 1, ack 2, win 510, options [nop,nop,TS val 2560110149 ecr 2077036751,mptcp dss ack 7925582221310606573], length 0
+02:35:38.659641 IP 172.17.2.32.37245 > 172.17.0.10.8000: Flags [.], ack 2, win 502, options [nop,nop,TS val 2077036752 ecr 2560110149], length 0
