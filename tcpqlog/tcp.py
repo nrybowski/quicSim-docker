@@ -23,16 +23,22 @@ bpf_code = """
 #include <linux/ip.h>
 #include <linux/types.h>
 #include <bcc/proto.h>
+#include <net/mptcp.h>
+
+#define MPTCPOPT_HMAC_LEN	20
 
 struct data_t {
-    u16 event_type;
-
     u16 family;
-    u32 daddr;
 
+    u32 daddr;
     u32 saddr;
     u16 dport;
     u16 sport;
+
+    u32 parent_daddr;
+    u32 parent_saddr;
+    u16 parent_dport;
+    u16 parent_sport;
 
     u64 timestamp;
 
@@ -42,10 +48,69 @@ struct data_t {
     u16 win;
 
     u64 sk;
+
+    u8 proto : 1;
 };
+
+// https://elixir.bootlin.com/linux/v5.12/source/net/mptcp/protocol.h#L388
+enum mptcp_data_avail {
+	MPTCP_SUBFLOW_NODATA,
+	MPTCP_SUBFLOW_DATA_AVAIL,
+	MPTCP_SUBFLOW_OOO_DATA
+};
+
+struct mptcp_subflow_context {
+	struct	list_head node;/* conn_list of subflows */
+	u64	local_key;
+	u64	remote_key;
+	u64	idsn;
+	u64	map_seq;
+	u32	snd_isn;
+	u32	token;
+	u32	rel_write_seq;
+	u32	map_subflow_seq;
+	u32	ssn_offset;
+	u32	map_data_len;
+	u32	request_mptcp : 1,  /* send MP_CAPABLE */
+		request_join : 1,   /* send MP_JOIN */
+		request_bkup : 1,
+		mp_capable : 1,	    /* remote is MPTCP capable */
+		mp_join : 1,	    /* remote is JOINing */
+		fully_established : 1,	    /* path validated */
+		pm_notified : 1,    /* PM hook called for established status */
+		conn_finished : 1,
+		map_valid : 1,
+		mpc_map : 1,
+		backup : 1,
+		send_mp_prio : 1,
+		rx_eof : 1,
+		can_ack : 1,        /* only after processing the remote a key */
+		disposable : 1;	    /* ctx can be free at ulp release time */
+	enum mptcp_data_avail data_avail;
+	u32	remote_nonce;
+	u64	thmac;
+	u32	local_nonce;
+	u32	remote_token;
+	u8	hmac[MPTCPOPT_HMAC_LEN];
+	u8	local_id;
+	u8	remote_id;
+
+	long	delegated_status;
+	struct	list_head delegated_node;   /* link into delegated_action, protected by local BH */
+
+	struct	sock *tcp_sock;	    /* tcp sk backpointer */
+	struct	sock *conn;	    /* parent mptcp_sock */
+	const	struct inet_connection_sock_af_ops *icsk_af_ops;
+	void	(*tcp_data_ready)(struct sock *sk);
+	void	(*tcp_state_change)(struct sock *sk);
+	void	(*tcp_write_space)(struct sock *sk);
+	void	(*tcp_error_report)(struct sock *sk);
+
+	struct	rcu_head rcu;
+};
+
 BPF_PERF_OUTPUT(events);
 BPF_PERF_OUTPUT(rcv_events);
-
 
 /*  tcp_transmit_skb is the common function used to send skbs in 
     tcp_connect aka 'SYN sent' (https://elixir.bootlin.com/linux/v5.11/source/net/ipv4/tcp_output.c#L3856)
@@ -65,6 +130,7 @@ int kprobe____tcp_transmit_skb(struct pt_regs *ctx, struct sock *sk, struct sk_b
     data.saddr = sk->sk_rcv_saddr;
     data.sport = sk->sk_num;
     data.dport = sk->sk_dport;
+    
     data.family = sk->sk_family;
 
     bpf_probe_read_kernel((void*) &skb_in, sizeof(struct sk_buff), skb);
@@ -78,13 +144,29 @@ int kprobe____tcp_transmit_skb(struct pt_regs *ctx, struct sock *sk, struct sk_b
     bpf_probe_read_kernel(&data.win, sizeof(u16), &th->window);
     data.win = ntohs(data.win);
 
-    events.perf_submit(ctx, &data, sizeof(struct data_t));
+    struct tcp_sock *tsk = (struct tcp_sock*) sk;
+    data.proto = tsk->is_mptcp;
+    if (tsk->is_mptcp) {
+        struct inet_connection_sock *icsk = inet_csk(sk);
+        struct mptcp_subflow_context *subflow = (__force struct mptcp_subflow_context *)icsk->icsk_ulp_data;
+        struct sock *psk = subflow->conn; // parent sk
+        //bpf_trace_printk("parent %u, %u, %u", data.flags, psk->sk_daddr, psk->sk_rcv_saddr);
+        //bpf_trace_printk("child %u, %u\\n", sk->sk_daddr, sk->sk_rcv_saddr);
+        data.parent_daddr = psk->sk_daddr;
+        data.parent_saddr = psk->sk_rcv_saddr;
+        data.parent_sport = psk->sk_num;
+        data.parent_dport = psk->sk_dport;
+    }
 
+    events.perf_submit(ctx, &data, sizeof(struct data_t));
+ 
+#ifdef DEBUG
     bpf_trace_printk("TRANSMIT %u %u %u", data.saddr, data.daddr, data.flags);
     bpf_trace_printk("win %u", data.win);
     bpf_trace_printk("sk %p", sk);
     bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
     bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
+#endif 
 
     return 0;
 }
@@ -139,10 +221,12 @@ struct sk_buff *kretprobe__tcp_make_synack(struct pt_regs *ctx) {
         events.perf_submit(ctx, &data, sizeof(struct data_t));
 
         // Debug
+#ifdef DEBUG
         bpf_trace_printk("SYN-ACK sent %u %u %u", data.saddr, data.daddr, data.flags);
         bpf_trace_printk("win %u", data.win);
         bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
         bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
+#endif
     }
 
     return skb;
@@ -156,7 +240,6 @@ void kprobe__tcp_v4_send_reset(struct pt_regs *ctx, const struct sock *sk, struc
     struct iphdr *iph = ip_hdr(&skb_in);
 
     struct data_t data = {};
-    data.event_type = 4;
     bpf_probe_read_kernel(&data.daddr, sizeof(data.daddr), &iph->saddr);
     bpf_probe_read_kernel(&data.saddr, sizeof(data.saddr), &iph->daddr);
     bpf_probe_read_kernel(&data.sport, sizeof(data.sport), &th->dest);
@@ -167,9 +250,11 @@ void kprobe__tcp_v4_send_reset(struct pt_regs *ctx, const struct sock *sk, struc
     data.timestamp = bpf_ktime_get_ns();
     //events.perf_submit(ctx, &data, sizeof(data));
 
+#ifdef DEBUG
     bpf_trace_printk("RST sent %u %u %u", data.saddr, data.daddr, data.flags);
     bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
     bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
+#endif
 }
 
 // syn received
@@ -204,12 +289,28 @@ int kprobe__tcp_conn_request(struct pt_regs *ctx, struct request_sock_ops *rsk_o
     data.family = sk->sk_family;
     data.timestamp = timestamp;
 
+    struct tcp_sock *tsk = (struct tcp_sock*) sk;
+    data.proto = tsk->is_mptcp;
+    if (tsk->is_mptcp) {
+        struct inet_connection_sock *icsk = inet_csk(sk);
+        struct mptcp_subflow_context *subflow = (__force struct mptcp_subflow_context *)icsk->icsk_ulp_data;
+        struct sock *psk = subflow->conn; // parent sk
+        //bpf_trace_printk("parent %u, %u, %u", data.flags, psk->sk_daddr, psk->sk_rcv_saddr);
+        //bpf_trace_printk("child %u, %u\\n", sk->sk_daddr, sk->sk_rcv_saddr);
+        data.parent_daddr = psk->sk_daddr;
+        data.parent_saddr = psk->sk_rcv_saddr;
+        data.parent_sport = psk->sk_num;
+        data.parent_dport = psk->sk_dport;
+    }
+
     rcv_events.perf_submit(ctx, &data, sizeof(data));
 
+#ifdef DEBUG
     bpf_trace_printk("SYN received, %u %u %u", data.saddr, data.daddr, data.flags);
     bpf_trace_printk("win %u", data.win);
     bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
     bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
+#endif
 
     return 0;
 }
@@ -251,8 +352,21 @@ int kprobe__tcp_ack(struct pt_regs *ctx, struct sock *sk, const struct sk_buff *
 
     // If received FIN-ACK, ignore it, it will be treated later via another kfunction call
     //if (!(data.flags & 0x1))
+    data.proto = tsk->is_mptcp;
+    if (tsk->is_mptcp) {
+        struct inet_connection_sock *icsk = inet_csk(sk);
+        struct mptcp_subflow_context *subflow = (__force struct mptcp_subflow_context *)icsk->icsk_ulp_data;
+        struct sock *psk = subflow->conn; // parent sk
+        //bpf_trace_printk("parent %u, %u, %u", data.flags, psk->sk_daddr, psk->sk_rcv_saddr);
+        //bpf_trace_printk("child %u, %u\\n", sk->sk_daddr, sk->sk_rcv_saddr);
+        data.parent_daddr = psk->sk_daddr;
+        data.parent_saddr = psk->sk_rcv_saddr;
+        data.parent_sport = psk->sk_num;
+        data.parent_dport = psk->sk_dport;
+    }
         rcv_events.perf_submit(ctx, &data, sizeof(struct data_t));
 
+#ifdef DEBUG
     bpf_trace_printk("ACK received %u %u %u", data.saddr, data.daddr, data.flags);
     bpf_trace_printk("win %u", data.win);
     bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
@@ -262,6 +376,7 @@ int kprobe__tcp_ack(struct pt_regs *ctx, struct sock *sk, const struct sk_buff *
         tsk->bytes_received, tsk->rcv_nxt, tsk->bytes_acked
     );
     bpf_trace_printk("rcv_wup %u, snd_una %u, snd_next %u\\n", tsk->rcv_wup, tsk->snd_una, tsk->snd_nxt);
+#endif
 
     return 0;
 }
@@ -277,7 +392,6 @@ void kprobe__tcp_reset(struct pt_regs *ctx, struct sock *sk, struct sk_buff *skb
     struct tcp_skb_cb* cb = TCP_SKB_CB(&skb_in);
 
     data.timestamp = timestamp;
-    data.event_type = 4;
     data.daddr = sk->sk_daddr;
     data.saddr = sk->sk_rcv_saddr;
     data.sport = sk->sk_num;
@@ -295,35 +409,29 @@ void kprobe__tcp_reset(struct pt_regs *ctx, struct sock *sk, struct sk_buff *skb
     data.ack_seq = ntohl(data.ack_seq);
     data.seq = ntohl(data.seq);
 
+    struct tcp_sock *tsk = (struct tcp_sock*) sk;
+    data.proto = tsk->is_mptcp;
+    if (tsk->is_mptcp) {
+        struct inet_connection_sock *icsk = inet_csk(sk);
+        struct mptcp_subflow_context *subflow = (__force struct mptcp_subflow_context *)icsk->icsk_ulp_data;
+        struct sock *psk = subflow->conn; // parent sk
+        //bpf_trace_printk("parent %u, %u, %u", data.flags, psk->sk_daddr, psk->sk_rcv_saddr);
+        //bpf_trace_printk("child %u, %u\\n", sk->sk_daddr, sk->sk_rcv_saddr);
+        data.parent_daddr = psk->sk_daddr;
+        data.parent_saddr = psk->sk_rcv_saddr;
+        data.parent_sport = psk->sk_num;
+        data.parent_dport = psk->sk_dport;
+    }
+
     rcv_events.perf_submit(ctx, &data, sizeof(data));
+
+#ifdef DEBUG
     bpf_trace_printk("RST received %u : %u\\n", data.saddr, data.daddr);
     bpf_trace_printk("win %u", data.win);
     bpf_trace_printk("sport %u, dport %u", data.sport, ntohs(data.dport));
     bpf_trace_printk("seq %u, end_seq %u, ack_seq %u\\n", data.seq, data.end_seq, data.ack_seq);
+#endif
 }
-
-// fin received
-/*void kprobe__tcp_fin(struct pt_regs *ctx, struct sock *sk) {
-    u64 timestamp = bpf_ktime_get_ns();
-    struct data_t data = {};
-
-    //struct sk_buff skb_in;
-    //bpf_probe_read_kernel((void*) &skb_in, sizeof(struct sk_buff), skb);
-    //struct tcphdr* th = tcp_hdr(&skb_in);
-    //bpf_probe_read((void*) &data.flags, sizeof(u8), &((u_int8_t *)th)[13]);
-
-    data.daddr = sk->sk_daddr;
-    data.saddr = sk->sk_rcv_saddr;
-    data.sport = sk->sk_num;
-    data.dport = sk->sk_dport;
-    data.family = sk->sk_family;
-    data.flags |= TCPHDR_FIN;
-    data.timestamp = timestamp;
-
-    rcv_events.perf_submit(ctx, &data, sizeof(data));
-
-    bpf_trace_printk("FIN received %u %u %u\\n", data.saddr, data.daddr, data.flags);
-}*/
 
 //void kretprobe__tcp_close(struct pt_regs* ctx) {
     
@@ -365,7 +473,7 @@ def from_long_to_ip4(val):
 b = BPF(text=bpf_code)
 c = {}
 
-def format_seq_no(group_id, events):
+def format_seq_no(events):
     # sort events by timestamp
     events.sort()
     #initial_timestamp = events[0][0]
@@ -379,10 +487,17 @@ def format_seq_no(group_id, events):
         local = events[2][3]['header']['seq']
         remote = events[1][3]['header']['seq']
 
+    h = ''
     for event in events:
-        event.append(group_id)
+        event.append(h)
         print(event)
-        if event[1] == 'transport':
+        if event[1] == 'connectivity' and 'connection_started' in event[2]:
+            #conn_data_raw = event[3]
+            #conn_data = [conn_data_raw['src_ip'], conn_data_raw['src_port'], conn_data_raw['dst_ip'], conn_data_raw['dst_port']]
+            #h = hashlib.md5(json.dumps(conn_data).encode('utf8')).hexdigest()
+            h = event[4]
+            event.pop()
+        elif event[1] == 'transport':
             header = event[3]['header']
             if 'ACK' in header['flags']:
                 if 'SYN' in header['flags']:
@@ -415,13 +530,12 @@ meta = {}
 
 def sigint_handler(_sig, _frame):
     print('Kill probe')
-    print(traces)
-    print('\nmeta : %s\n' % meta)
+    #print(traces)
+    #print('\nmeta : %s\n' % meta)
     qlog_data = {'events': []}
     for conn in traces.values():
-        h = hashlib.md5(json.dumps(conn).encode('utf8')).hexdigest()
-        qlog_data['events'].append(format_seq_no(h, conn))
-    print(qlog_data)
+        qlog_data['events'].append(format_seq_no(conn))
+    #print(qlog_data)
     json.dump(qlog_data, output_file)
     output_file.close()
     print('Dump end')
@@ -447,6 +561,7 @@ def process_event(cpu, data, size, event_type):
             'src_port': event.sport,
             'dst_port': ntohs(event.dport),
             'transport_protocol': 'TCP',
+            #'transport_protocol': '%sTCP' % ('MP' if event.proto == 1 else ''),
             'ip_version': '4' if event.family == 2 else '6'
     }
 
@@ -473,11 +588,17 @@ def process_event(cpu, data, size, event_type):
     if 'SYN' in header['flags']:
         header['seq'] = event.seq
         if len(header['flags']) == 1:
-            #if event_type == 'rcv':
-            #    tmp = connection['src_ip']
-            #    connection['src_ip'] = connection['dst_ip']
-            #    connection['dst_ip'] = tmp
-            log = [timestamp, 'connectivity', 'connection_started', connection]
+            connectivity_type = '%sconnection_started' % ('subflow_' if event.proto and (event.parent_saddr != event.saddr or event.parent_daddr != event.daddr) and event.parent_saddr != 0 and event.parent_daddr != 0 else '')
+
+            conn_data = [connection['src_ip'], connection['src_port'], connection['dst_ip'], connection['dst_port']]
+            group_id = hashlib.md5(json.dumps(conn_data).encode('utf8')).hexdigest()
+            log = [timestamp, 'connectivity', connectivity_type, connection, group_id]
+            if event.proto == 1 and 'subflow' in connectivity_type:
+                # add parent hash if subflow creation
+                parent_id = [from_long_to_ip4(event.parent_saddr), event.parent_sport, from_long_to_ip4(event.parent_daddr), ntohs(event.parent_dport)]
+                print(parent_id)
+                log.append(hashlib.md5(json.dumps(parent_id).encode('utf8')).hexdigest())
+
             events.append(log)
             if event_type == 'rcv':
                 new_co = {

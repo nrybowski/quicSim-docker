@@ -132,7 +132,6 @@ if { "${CONTAINER_NAME}" == "client" } {
 
 #send -- "sleep 10\r"
 #send -- "pkill -2 python3\r"
-#send -- "cat /sys/kernel/debug/tracing/trace\r"
 
 # kill KVM
 if { "${CONTAINER_NAME}" == "client" } {
@@ -144,6 +143,7 @@ if { "${CONTAINER_NAME}" == "client" } {
 
 send -- "pkill -2 python3\r"
 expect "Dump end"
+send -- "cat /sys/kernel/debug/tracing/trace\r"
 send -- "/usr/lib/klibc/bin/poweroff\r"
 
 expect eof
