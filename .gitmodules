@@ -4,3 +4,6 @@
 [submodule "tcpqlog/mptcp-tools"]
 	path = tcpqlog/mptcp-tools
 	url = https://github.com/pabeni/mptcp-tools
+[submodule "tcpqlog/mptcp_net-next"]
+	path = tcpqlog/mptcp_net-next
+	url = https://github.com/multipath-tcp/mptcp_net-next
