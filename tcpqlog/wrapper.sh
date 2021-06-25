@@ -1,6 +1,6 @@
 #! /bin/sh -e
 
-KERNEL_SRC="${PWD}/../../mptcp_net-next"
+KERNEL_SRC="${PWD}/mptcp_net-next"
 MNT_POINT="/kernel_sources"
 
 # Compile the mptcp helper tools

@@ -5,10 +5,12 @@ cd "${SRC}"
 # install new kernel modules for BCC
 kconfig=(-e BPF_SYSCALL -d CGROUP_BPF -d BPF_PRELOAD -d XDP_SOCKETS -d BPF_KPROBE_OVERRIDE \
         -d KPROBE_EVENT_GEN_TEST -e CONFIG_KALLSYMS_ALL -e NET_SCH_NETEM)
-#virtme-configkernel --defconfig
-#echo | ./scripts/config "${kconfig[@]}"
-#make -j"$(nproc)"
-#make -j"$(nproc)" > /dev/null 2>&1 
+virtme-configkernel --defconfig
+echo | ./scripts/config "${kconfig[@]}"
+if [[ ! -f arch/x86/boot/bzImage ]]
+then
+    make -j"$(nproc)"
+fi
 make -j"$(nproc)" headers_install > /dev/null 2>&1 
 make -j"$(nproc)" modules_install > /dev/null 2>&1 
 make -j"$(nproc)" -C tools/bpf/bpftool install

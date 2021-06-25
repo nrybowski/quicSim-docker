@@ -35,7 +35,7 @@ WORKDIR /wd
 
 RUN apt-get update && apt-get install -y git qemu-kvm python3-pip klibc-utils \
 	rsync kmod libelf-dev bc iproute2 iputils-ping expect binutils-dev \
-    libreadline-dev tcpdump curl
+    libreadline-dev tcpdump curl libssl-dev
 
 # Install virtme
 RUN git clone https://github.com/ezequielgarcia/virtme.git &&\
